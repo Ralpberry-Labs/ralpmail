@@ -1,0 +1,13 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ralpmail
+      POSTGRES_PASSWORD: ralpmail
+      POSTGRES_DB: ralpmail
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - database:/var/lib/postgresql/data
+volumes:
+  database:
