@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { email, lanes } from './config.js';
 import { transaction } from './db.js';
 import { matches, otpCode } from './otp.js';
+import { isSenderPolicyCode, pauseLane, pauseOnFeedback } from './reputation.js';
 
 const subject = z.string().trim().min(1).max(250).regex(/^[^\x00-\x1f\x7f]+$/u);
 const body = z.string().min(1).max(32_000);
@@ -206,35 +207,61 @@ export function buildApi(pool, { apiKey, otpSecret, feedbackKey, logger = false 
     return { ...campaign, counts: Object.fromEntries(rows.map(({ status, total }) => [status, total])) };
   });
 
+  app.get('/lanes/:lane', async (request) => {
+    authorize(request, apiKey);
+    const lane = z.enum(lanes).parse(request.params.lane);
+    const { rows: [state] } = await pool.query(
+      'SELECT lane, paused, pause_reason, paused_at FROM lane_limits WHERE lane = $1', [lane],
+    );
+    return state;
+  });
+
   app.put('/lanes/:lane', async (request) => {
     authorize(request, apiKey);
     const lane = z.enum(lanes).parse(request.params.lane);
     const { paused } = z.object({ paused: z.boolean() }).strict().parse(request.body);
-    await pool.query('UPDATE lane_limits SET paused = $2 WHERE lane = $1', [lane, paused]);
+    if (paused) {
+      await pauseLane(pool, lane, 'manual');
+    } else {
+      await pool.query(
+        'UPDATE lane_limits SET paused = false, pause_reason = NULL, paused_at = NULL WHERE lane = $1', [lane],
+      );
+    }
     return { lane, paused };
   });
 
   app.post('/feedback', async (request, reply) => {
     authorize(request, feedbackKey);
-    const { messageId, event } = z.object({
-      messageId: id, event: z.enum(['delivered', 'hard_bounce', 'complaint']),
-    }).strict().parse(request.body);
+    const { messageId, event, enhancedCode } = z.discriminatedUnion('event', [
+      z.object({ messageId: id, event: z.literal('sender_policy_block'),
+        enhancedCode: z.string().refine(isSenderPolicyCode) }).strict(),
+      z.object({ messageId: id, event: z.enum(['delivered', 'hard_bounce', 'complaint']) }).strict(),
+    ]).parse(request.body);
     await transaction(pool, async (client) => {
       const { rows: [job] } = await client.query(
-        "SELECT recipient, lane FROM messages WHERE id = $1 AND status IN ('sending','accepted','uncertain') FOR UPDATE",
+        "SELECT recipient, lane, feedback FROM messages WHERE id = $1 AND status IN ('sending','accepted','uncertain') FOR UPDATE",
         [messageId],
       );
       if (!job) throw problem(404, 'Sent message not found');
-      await client.query(
-        `UPDATE messages SET feedback = CASE
-          WHEN feedback = 'complaint' OR $2 = 'complaint' THEN 'complaint'
-          WHEN feedback = 'hard_bounce' OR $2 = 'hard_bounce' THEN 'hard_bounce'
-          ELSE 'delivered' END WHERE id = $1`, [messageId, event],
-      );
-      if (event === 'hard_bounce' || (event === 'complaint' && job.lane === 'transactional')) {
+      if (event === 'sender_policy_block') {
+        const result = await client.query(
+          `UPDATE messages SET policy_code = $2 WHERE id = $1 AND policy_code IS NULL
+           AND started_at >= now() - interval '24 hours'`, [messageId, enhancedCode],
+        );
+        if (result.rowCount) await pauseLane(client, job.lane, 'smtp_' + enhancedCode);
+        return;
+      }
+      const feedback = event === 'complaint' || job.feedback === 'complaint' ? 'complaint'
+        : event === 'hard_bounce' || job.feedback === 'hard_bounce' ? 'hard_bounce' : 'delivered';
+      if (feedback !== job.feedback) {
+        await client.query('UPDATE messages SET feedback = $2 WHERE id = $1', [messageId, feedback]);
+      }
+      if (event === 'hard_bounce' || event === 'complaint') {
+        const reason = event === 'complaint' && job.lane === 'marketing' ? 'marketing_complaint' : event;
         await client.query(
-          'INSERT INTO suppressions (email, reason) VALUES ($1, $2) ON CONFLICT (email) DO UPDATE SET reason = EXCLUDED.reason',
-          [job.recipient, event],
+          `INSERT INTO suppressions (email, reason) VALUES ($1, $2)
+           ON CONFLICT (email) DO UPDATE SET reason = EXCLUDED.reason
+           WHERE EXCLUDED.reason <> 'marketing_complaint'`, [job.recipient, reason],
         );
       }
       if (event === 'complaint') {
@@ -242,14 +269,8 @@ export function buildApi(pool, { apiKey, otpSecret, feedbackKey, logger = false 
           'UPDATE contacts SET unsubscribed_at = now() WHERE email = $1 AND unsubscribed_at IS NULL',
           [job.recipient],
         );
-        // Keep the block even if the recipient has no contact record yet.
-        if (job.lane === 'marketing') {
-          await client.query(
-            "INSERT INTO suppressions (email, reason) VALUES ($1, 'marketing_complaint') ON CONFLICT DO NOTHING",
-            [job.recipient],
-          );
-        }
       }
+      if (event !== 'delivered' && feedback !== job.feedback) await pauseOnFeedback(client, job.lane);
     });
     return reply.code(204).send();
   });

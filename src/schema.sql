@@ -71,6 +71,14 @@ CREATE TABLE IF NOT EXISTS lane_limits (
   paused boolean NOT NULL DEFAULT false
 );
 
+ALTER TABLE lane_limits ADD COLUMN IF NOT EXISTS pause_reason text;
+ALTER TABLE lane_limits ADD COLUMN IF NOT EXISTS paused_at timestamptz;
+
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS policy_code text;
+
+CREATE INDEX IF NOT EXISTS messages_feedback_cohort ON messages (lane, started_at)
+  WHERE status IN ('sending', 'accepted', 'uncertain');
+
 INSERT INTO lane_limits (lane) VALUES ('transactional'), ('marketing') ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS automations (

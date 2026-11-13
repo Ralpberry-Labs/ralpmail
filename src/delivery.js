@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { transaction } from './db.js';
 import { otpCode } from './otp.js';
+import { isSenderPolicyCode, pauseLane, smtpEnhancedCode } from './reputation.js';
 
 export function smtpTransport({ url }) {
   const secure = url.protocol === 'smtps:';
@@ -113,12 +114,20 @@ export async function deliverOne(pool, lane, config, transport, otpSecret) {
     });
   } catch (error) {
     const code = Number(error.responseCode);
-    if (code >= 400 && code < 500) {
+    const enhanced = smtpEnhancedCode(error);
+    const diagnostic = 'SMTP ' + code + (enhanced ? ' ' + enhanced : '');
+    if (isSenderPolicyCode(enhanced)) {
+      await transaction(pool, async (client) => {
+        const retry = code < 500 && job.attempts < 5;
+        await finish(client, id, retry ? 'queued' : 'failed', diagnostic, retry ? 60 : null);
+        await pauseLane(client, lane, 'smtp_' + enhanced);
+      });
+    } else if (code >= 400 && code < 500) {
       const delay = 60 * 2 ** (job.attempts - 1) + Math.floor(Math.random() * 30);
       const status = job.attempts < 5 ? 'queued' : 'failed';
-      await finish(pool, id, status, 'SMTP ' + code, status === 'queued' ? delay : null);
+      await finish(pool, id, status, diagnostic, status === 'queued' ? delay : null);
     } else if (code >= 500 && code < 600) {
-      await finish(pool, id, 'failed', 'SMTP ' + code);
+      await finish(pool, id, 'failed', diagnostic);
     } else {
       // A connection loss after DATA can hide a successful acceptance.
       await finish(pool, id, 'uncertain', 'SMTP outcome unknown');

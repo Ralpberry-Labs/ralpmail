@@ -224,3 +224,71 @@ test('marketing complaints preserve transactional delivery unless a hard bounce 
   assert.equal(await run('transactional'), true);
   assert.equal((await request('GET', '/emails/' + second.json().id)).json().status, 'suppressed');
 });
+
+test('two recent complaints pause only the affected lane and duplicate feedback cannot repause it', async () => {
+  await pool.query("UPDATE messages SET started_at = now() - interval '2 days' WHERE lane = 'marketing'");
+  const { rows: cohort } = await pool.query(
+    `INSERT INTO messages (lane, recipient, status, started_at) VALUES
+      ('marketing', 'one@example.test', 'accepted', now()),
+      ('marketing', 'two@example.test', 'accepted', now())
+      RETURNING id`,
+  );
+  const report = (job) => request('POST', '/feedback',
+    { messageId: job.id, event: 'complaint' }, null, feedbackKey);
+  const lane = async () => (await request('GET', '/lanes/marketing')).json();
+  const reports = await Promise.all(cohort.map(report));
+  assert.ok(reports.every((result) => result.statusCode === 204));
+  assert.equal((await lane()).pause_reason, 'complaint_rate');
+  assert.equal((await request('GET', '/lanes/transactional')).json().paused, false);
+  assert.equal(await run('marketing'), false);
+  await request('PUT', '/lanes/marketing', { paused: false });
+  await report(cohort[1]);
+  assert.equal((await lane()).paused, false);
+});
+
+test('five hard bounces pause the lane at the local threshold', async () => {
+  await pool.query("UPDATE messages SET started_at = now() - interval '2 days' WHERE lane = 'marketing'");
+  const { rows: jobs } = await pool.query(
+    `INSERT INTO messages (lane, recipient, status, started_at)
+     SELECT 'marketing', 'bounce' || n || '@example.test', 'accepted', now()
+     FROM generate_series(1, 250) AS n RETURNING id`,
+  );
+  for (const [index, job] of jobs.slice(0, 5).entries()) {
+    const result = await request('POST', '/feedback',
+      { messageId: job.id, event: 'hard_bounce' }, null, feedbackKey);
+    assert.equal(result.statusCode, 204);
+    const state = (await request('GET', '/lanes/marketing')).json();
+    assert.equal(state.paused, index === 4);
+  }
+  assert.equal((await request('GET', '/lanes/marketing')).json().pause_reason, 'hard_bounce_rate');
+  await request('PUT', '/lanes/marketing', { paused: false });
+});
+
+test('sender policy rejection pauses a lane and preserves a temporary failure for retry', async () => {
+  const response = await request('POST', '/emails',
+    { to: 'policy@example.test', subject: 'Policy', text: 'Hello' }, 'policy-one');
+  const id = response.json().id;
+  const relay = {
+    async sendMail() {
+      throw Object.assign(new Error('SPF failed'), {
+        responseCode: 421, response: '421 4.7.27 SPF failed for policy@example.test',
+      });
+    },
+  };
+  assert.equal(await run('transactional', relay), true);
+  const job = (await request('GET', '/emails/' + id)).json();
+  assert.equal(job.status, 'queued');
+  assert.equal(job.diagnostic, 'SMTP 421 4.7.27');
+  assert.equal((await request('GET', '/lanes/transactional')).json().pause_reason, 'smtp_4.7.27');
+  assert.equal(await run('transactional', relay), false);
+  await request('PUT', '/lanes/transactional', { paused: false });
+  await pool.query('UPDATE messages SET send_at = now() WHERE id = $1', [id]);
+  assert.equal(await run('transactional'), true);
+  const event = { messageId: id, event: 'sender_policy_block', enhancedCode: '5.7.30' };
+  assert.equal((await request('POST', '/feedback', { ...event, enhancedCode: '5.1.1' }, null, feedbackKey)).statusCode, 400);
+  assert.equal((await request('POST', '/feedback', event, null, feedbackKey)).statusCode, 204);
+  assert.equal((await request('GET', '/lanes/transactional')).json().pause_reason, 'smtp_5.7.30');
+  await request('PUT', '/lanes/transactional', { paused: false });
+  await request('POST', '/feedback', event, null, feedbackKey);
+  assert.equal((await request('GET', '/lanes/transactional')).json().paused, false);
+});

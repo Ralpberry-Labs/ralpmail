@@ -50,18 +50,22 @@ Send JSON with `Authorization: Bearer <API_KEY>`. The feedback endpoint uses its
 | `POST /events` | `{event, to}`. Queue the enabled rule's email for a backend event. |
 | `POST /otp/challenges` | `{email, purpose}`. Queue a six-digit code and return the challenge ID and expiry. |
 | `POST /otp/challenges/{id}/verify` | `{email, purpose, code}`. Returns `{verified}`. The code is a string. |
+| `GET /lanes/{lane}` | Current pause state, reason, and timestamp. |
 | `PUT /lanes/{lane}` | `{paused}`. Pause or resume new handoffs for `transactional` or `marketing`. |
-| `POST /feedback` | `{messageId, event}`, where `event` is `delivered`, `hard_bounce`, or `complaint`. |
+| `POST /feedback` | `{messageId, event}`, where `event` is `delivered`, `hard_bounce`, or `complaint`. For a documented sender configuration rejection, send `{messageId, event: "sender_policy_block", enhancedCode}`. |
 
 Schedules take an ISO 8601 timestamp with a timezone. Campaigns snapshot eligible contacts when queued and recheck consent and suppressions before SMTP. Already in-flight deliveries may complete after an opt-out or pause. Campaign status counts describe queue and SMTP handoff. Relay feedback is per message. Disabling an automation stops new events from queuing email. OTP challenges expire after 10 minutes and allow up to five verification attempts, with an issuance limit of one per minute and five per hour per address. Bind the successful verification to your own application session and apply per-account and per-IP limits at your application's public boundary.
 
 ## Deployment
+
+When upgrading an existing installation, run the migration with the API and worker stopped, then restart both. The migration adds the pause metadata and feedback index.
 
 - Run the API and worker with the same PostgreSQL database and OTP secret. Keep the API key and database off public client code. Put the API behind an HTTPS proxy and keep administrative endpoints on a trusted network when possible. Avoid logging unsubscribe tokens in proxy access logs. The Compose database settings are for local development.
 - Set a per-lane rate and daily attempt budget. Workers share these limits through PostgreSQL, and the daily budget resets at midnight UTC. A relay may enforce a rolling window or a shared quota across lanes. Account for retries and other senders sharing the relay. Run workers with consistent lane settings.
 - Publish and verify SPF, DKIM, and DMARC on the actual sending path. For campaign mail, configure the relay to DKIM-sign both unsubscribe headers, and verify them on a received message.
 - Build a small relay adapter that verifies your provider's webhook signature, maps the original RFC Message-ID to the queued UUID, and calls `/feedback`. The API expects trusted normalized events. SMTP acceptance means the configured relay accepted the message. Receiver delivery, inbox placement, and tab placement are separate outcomes.
 - Explicit SMTP 4xx responses get bounded retries. Permanent SMTP 5xx responses stop the job. A disconnected or interrupted attempt can become `uncertain`. Reconcile that status against relay logs before any manual resend. Record confirmed hard bounces through feedback so future mail is suppressed.
+- Monitor lane pause state and investigate its reason before resuming. Sender configuration rejections and elevated complaint or hard-bounce feedback can pause the affected lane automatically. See [automatic sending pauses](docs/deliverability.md#automatic-sending-pauses).
 - Set retention and deletion policies for message bodies, recipients, campaign records, and idempotency keys. This release has no automatic data expiry. Keep opt-outs and suppressions during cleanup. Protect backups and use a separate deployment for each organization.
 
 ## Scope
