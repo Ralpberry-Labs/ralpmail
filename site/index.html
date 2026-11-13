@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RalpMail | Open-source, self-hosted email API</title>
+  <meta name="description" content="Self-host an open-source email API for transactional email, opt-in bulk campaigns, scheduled automations, and OTP verification. Bring your own SMTP relay.">
+  <link rel="canonical" href="https://ralpberry-labs.github.io/ralpmail/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="RalpMail | The email API you can self-host">
+  <meta property="og:description" content="Transactional email, opt-in campaigns, automations, and OTPs. MIT licensed. Bring your own SMTP relay.">
+  <meta property="og:url" content="https://ralpberry-labs.github.io/ralpmail/">
+  <meta property="og:image" content="https://ralpberry-labs.github.io/ralpmail/social.png">
+  <meta property="og:image:alt" content="RalpMail. The email API you can self-host.">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="examples.js" defer></script>
+</head>
+<body>
+  <header class="wrap top">
+    <a class="brand" href="./"><span class="mark" aria-hidden="true">✳</span> RalpMail</a>
+    <nav aria-label="Main navigation">
+      <a href="#api">API</a>
+      <a href="#delivery">Deliverability</a>
+      <a class="nav-github" href="https://github.com/Ralpberry-Labs/ralpmail">GitHub <span aria-hidden="true">↗</span></a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="wrap hero" aria-labelledby="headline">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="dot"></span> OPEN SOURCE · MIT LICENSED</p>
+        <h1 id="headline">The email API<br>you can <em>self-host.</em></h1>
+        <p class="intro">Send receipts, verification codes, and opt-in newsletters through your own SMTP relay. One API, with separate queues for transactional and marketing mail.</p>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/Ralpberry-Labs/ralpmail#run-locally">Get started <span aria-hidden="true">↗</span></a>
+          <a class="button secondary" href="https://github.com/Ralpberry-Labs/ralpmail">☆ <span>Star on GitHub</span></a>
+        </div>
+      </div>
+
+      <div class="dispatch" aria-label="Illustrative delivery flow">
+        <div class="dispatch-top"><span><i></i><i></i><i></i></span><span>DELIVERY FLOW</span></div>
+        <div class="dispatch-body">
+          <div class="wire-row"><span class="wire-icon" aria-hidden="true">⌘</span><div><b>Your application</b><small>HTTP API</small></div></div>
+          <div class="wire" aria-hidden="true"></div>
+          <div class="split">
+            <div class="lane"><small><span class="dot"></span> TRANSACTIONAL</small><b>Receipts & OTPs</b></div>
+            <div class="lane"><small><span class="dot gold"></span> MARKETING</small><b>Opt-in campaigns</b></div>
+          </div>
+          <div class="wire" aria-hidden="true"></div>
+          <div class="wire-row"><span class="wire-icon" aria-hidden="true">↗</span><div><b>Your SMTP relay</b><small>TLS HANDOFF</small></div></div>
+        </div>
+        <div class="dispatch-foot"><span class="dot"></span> Rate limits and pause controls per lane</div>
+      </div>
+    </section>
+
+    <section class="wrap api" id="api" aria-labelledby="api-title">
+      <div class="section-copy">
+        <h2 id="api-title">From an API call<br>to the send queue.</h2>
+        <p>Queue plain-text email with a JSON request. Use a stable idempotency key to retry the same request without adding duplicate jobs.</p>
+        <a class="text-link" href="https://github.com/Ralpberry-Labs/ralpmail#api">Read the API reference <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="example">
+        <div class="example-controls">
+          <div class="examples" aria-label="API examples">
+            <button type="button" aria-pressed="true" data-example="receipt">Receipt</button>
+            <button type="button" aria-pressed="false" data-example="otp">Email OTP</button>
+            <button type="button" aria-pressed="false" data-example="campaign">Campaign</button>
+          </div>
+          <button class="copy" type="button" aria-label="Copy current API example">Copy</button>
+        </div>
+        <pre tabindex="0" aria-label="cURL example"><code id="command">curl http://127.0.0.1:3000/emails \
+  -H "Authorization: Bearer $RALPMAIL_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: receipt-1001' \
+  -d '{
+    "to": "customer@example.com",
+    "subject": "Your receipt",
+    "text": "Thank you for your purchase."
+  }'</code></pre>
+        <div class="example-footer"><span class="dot"></span> HTTP 202 · Queued</div>
+        <p class="sr-only" role="status" id="example-status"></p>
+      </div>
+    </section>
+
+    <section class="delivery" id="delivery" aria-labelledby="delivery-title">
+      <div class="wrap delivery-inner">
+        <div class="section-copy">
+          <h2 id="delivery-title">Sending with<br>delivery in mind.</h2>
+          <p>Run your own email API and use a relay with a verified sending domain. Your relay and mailbox providers influence actual inbox placement.</p>
+          <a class="text-link" href="https://github.com/Ralpberry-Labs/ralpmail/blob/main/docs/deliverability.md">Read the deliverability guide <span aria-hidden="true">↗</span></a>
+        </div>
+        <dl class="promises">
+          <div><dt>One-click unsubscribe</dt><dd>Campaigns include unsubscribe headers and a visible link. Queued mail checks consent again before handoff.</dd></div>
+          <div><dt>Automatic sending pauses</dt><dd>Recognized sender configuration rejections and elevated relay feedback can pause the affected lane.</dd></div>
+          <div><dt>Feedback and suppression</dt><dd>Connect a relay adapter to record complaints and hard bounces and suppress future sends.</dd></div>
+        </dl>
+      </div>
+    </section>
+  </main>
+  <footer class="wrap foot">
+    <span class="brand"><span class="mark" aria-hidden="true">✳</span> RalpMail</span>
+    <span>An open-source project by <a href="https://github.com/Ralpberry-Labs">Ralpberry Labs</a>.</span>
+    <a href="https://github.com/Ralpberry-Labs/ralpmail/blob/main/LICENSE">MIT License ↗</a>
+  </footer>
+</body>
+</html>

@@ -1,12 +1,20 @@
 # RalpMail
 
-RalpMail is an MIT-licensed, self-hosted email API and delivery queue from Ralpberry Labs. Send application email, verify email addresses with one-time codes, trigger scheduled follow-ups, and run newsletters for subscribers who opted in. Bring a verified sending domain and your own SMTP relay. RalpMail adds no per-email fee. Relays, servers, storage, and operating the service may have costs.
+**Open-source, self-hosted email API for transactional email, opt-in bulk campaigns, and email OTPs.**
+
+[Website](https://ralpberry-labs.github.io/ralpmail/) · [Quickstart](#run-locally) · [API reference](#api) · [Deliverability guide](docs/deliverability.md)
+
+[![Tests](https://github.com/Ralpberry-Labs/ralpmail/actions/workflows/test.yml/badge.svg)](https://github.com/Ralpberry-Labs/ralpmail/actions/workflows/test.yml)
+
+RalpMail is an MIT-licensed project from Ralpberry Labs. Queue application email, verify email addresses with one-time codes, trigger scheduled follow-ups, and run newsletters for subscribers who opted in. Bring a verified sending domain and your own SMTP relay. RalpMail adds no per-email fee. Relays, servers, storage, and operating the service may have costs.
 
 This first release is a single-organization API for trusted backend callers. It uses Node.js 22+, PostgreSQL 17+, and SMTP with mandatory TLS. See the [deliverability research and rollout guide](docs/deliverability.md) for sender requirements, what to measure, and what to verify before scaling.
 
 ## Run locally
 
 ```sh
+git clone https://github.com/Ralpberry-Labs/ralpmail.git
+cd ralpmail
 npm ci
 docker compose up -d db
 cp .env.example .env
@@ -71,3 +79,7 @@ When upgrading an existing installation, run the migration with the API and work
 ## Scope
 
 This release supports plain-text messages, one subscriber list, a single-step automation per event, and bring-your-own SMTP. It has a Resend-inspired API with its own payloads and responses. HTML and attachments, SDK compatibility, a dashboard, built-in provider webhook adapters, multi-tenant administration, and verified high-volume capacity are future work.
+
+## Contributing
+
+Try the API examples against your own deployment, then [share feedback or report a reproducible issue](https://github.com/Ralpberry-Labs/ralpmail/issues). To propose a change, open an issue describing the use case and run `npm test` before submitting a pull request. If the project fits your stack, star it on GitHub to follow its development.
